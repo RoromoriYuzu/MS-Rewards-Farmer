@@ -5,16 +5,23 @@ import logging
 import re
 import time
 from argparse import Namespace
+from datetime import date
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
+import ipapi
 
 import requests
 import yaml
 from apprise import Apprise
 from requests import Session
 from requests.adapters import HTTPAdapter
-from selenium.common import NoSuchElementException, TimeoutException, ElementClickInterceptedException, \
-    ElementNotInteractableException
+from selenium.common import (
+    NoSuchElementException,
+    TimeoutException,
+    ElementClickInterceptedException,
+    ElementNotInteractableException,
+)
 from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webelement import WebElement
@@ -24,6 +31,32 @@ from urllib3 import Retry
 
 from .constants import REWARDS_URL
 from .constants import SEARCH_URL
+
+DEFAULT_CONFIG: MappingProxyType = MappingProxyType(
+    {
+        "apprise": {
+            "notify": {
+                "incomplete-activity": {"enabled": True, "ignore-safeguard-info": True},
+                "uncaught-exception": {"enabled": True},
+            },
+            "summary": "ON_ERROR",
+        },
+        "default": {"geolocation": "US"},
+        "logging": {"level": "DEBUG"},
+        "retries": {
+            "base_delay_in_seconds": 14.0625,
+            "max": 4,
+            "strategy": "EXPONENTIAL",
+        },
+    }
+)
+DEFAULT_PRIVATE_CONFIG: MappingProxyType = MappingProxyType(
+    {
+        "apprise": {
+            "urls": [],
+        },
+    }
+)
 
 
 class Utils:
@@ -35,52 +68,95 @@ class Utils:
             locale = pylocale.getdefaultlocale()[0]
             pylocale.setlocale(pylocale.LC_NUMERIC, locale)
 
-        self.config = self.loadConfig()
+        # self.config = self.loadConfig()
 
     @staticmethod
     def getProjectRoot() -> Path:
         return Path(__file__).parent.parent
 
     @staticmethod
-    def loadConfig(configFilename="config.yaml") -> dict:
-        configFile = Utils.getProjectRoot() / configFilename
-        try:
-            with open(configFile, "r") as file:
-                config = yaml.safe_load(file)
-                if not config:
-                    logging.info(f"{file} doesn't exist")
-                    return {}
-                return config
-        except OSError:
-            logging.warning(f"{configFilename} doesn't exist")
-            return {}
+    def loadYaml(path: Path) -> dict:
+        with open(path, "r") as file:
+            yamlContents = yaml.safe_load(file)
+            if not yamlContents:
+                logging.info(f"{yamlContents} is empty")
+                yamlContents = {}
+            return yamlContents
 
     @staticmethod
-    def sendNotification(title, body) -> None:
-        if Utils.args.disable_apprise:
+    def loadConfig(
+            configFilename="config.yaml", defaultConfig=DEFAULT_CONFIG
+    ) -> MappingProxyType:
+        configFile = Utils.getProjectRoot() / configFilename
+        try:
+            return MappingProxyType(defaultConfig | Utils.loadYaml(configFile))
+        except OSError:
+            logging.info(f"{configFile} doesn't exist, returning defaults")
+            return defaultConfig
+
+    @staticmethod
+    def loadPrivateConfig() -> MappingProxyType:
+        return Utils.loadConfig("config-private.yaml", DEFAULT_PRIVATE_CONFIG)
+
+    @staticmethod
+    def getCCodeLangAndOffset() -> tuple:
+        """Get lang, geo, time zone"""
+        try:
+            nfo = ipapi.location()
+            lang = nfo['languages'].split(',')[0]
+            geo = nfo['country']
+            ip = " ".join([nfo['ip'], nfo['country_name'], nfo['region'], nfo['city']])
+            tz = str(round(int(nfo['utc_offset']) / 100 * 60))
+            return lang, geo, tz, ip
+        except:
+            return 'en-US', 'US', '-480', '127.0.0.1 localhost'
+
+    @staticmethod
+    def sendNotification(title, body, e: Exception = None) -> None:
+        if Utils.args.disable_apprise or (
+                e
+                and not CONFIG.get("apprise")
+                .get("notify")
+                .get("uncaught-exception")
+                .get("enabled")
+        ):
             return
         apprise = Apprise()
-        urls: list[str] = Utils.loadConfig("config-private.yaml").get("apprise", {}).get("urls", [])
+        urls: list[str] = (
+            # Utils.loadConfig("config-private.yaml").get("apprise", {}).get("urls", [])
+            PRIVATE_CONFIG.get("apprise").get("urls")
+        )
         if not urls:
             logging.debug("No urls found, not sending notification")
             return
         for url in urls:
             apprise.add(url)
-        assert apprise.notify(title=str(title), body=str(body))
+
+        lang, geo, tz, ip = Utils.getCCodeLangAndOffset()
+        additional_info = f"\n Lang: {lang}, Geo: {geo}, TZ: {tz}, IP: {ip}"
+
+        assert apprise.notify(title=str(title), body=str(body) + additional_info)
 
     def waitUntilVisible(
-        self, by: str, selector: str, timeToWait: float = 10
+            self, by: str, selector: str, timeToWait: float = 10
     ) -> WebElement:
         return WebDriverWait(self.webdriver, timeToWait).until(
             expected_conditions.visibility_of_element_located((by, selector))
         )
 
     def waitUntilClickable(
-        self, by: str, selector: str, timeToWait: float = 10
+            self, by: str, selector: str, timeToWait: float = 10
     ) -> WebElement:
         return WebDriverWait(self.webdriver, timeToWait).until(
             expected_conditions.element_to_be_clickable((by, selector))
         )
+
+    def isElementExists(self, by: str, selector: str) -> bool:
+        try:
+            self.webdriver.find_element(by, selector)
+        except NoSuchElementException:
+            return False
+        return True
 
     def checkIfTextPresentAfterDelay(self, text: str, timeToWait: float = 10) -> bool:
         time.sleep(timeToWait)
@@ -110,7 +186,7 @@ class Utils:
     def goToRewards(self) -> None:
         self.webdriver.get(REWARDS_URL)
         assert (
-            self.webdriver.current_url == REWARDS_URL
+                self.webdriver.current_url == REWARDS_URL
         ), f"{self.webdriver.current_url} {REWARDS_URL}"
 
     def goToSearch(self) -> None:
@@ -125,6 +201,7 @@ class Utils:
         t += int(key[-2:], 16)
         return str(t)
 
+    # Prefer getBingInfo if possible
     def getDashboardData(self) -> dict:
         urlBefore = self.webdriver.current_url
         try:
@@ -136,6 +213,14 @@ class Utils:
             except TimeoutException:
                 self.goToRewards()
 
+    def getDailySetPromotions(self) -> list[dict]:
+        return self.getDashboardData()["dailySetPromotions"][
+            date.today().strftime("%m/%d/%Y")
+        ]
+
+    def getMorePromotions(self) -> list[dict]:
+        return self.getDashboardData()["morePromotions"]
+
     def getBingInfo(self) -> Any:
         session = self.makeRequestsSession()
 
@@ -145,12 +230,21 @@ class Utils:
         response = session.get("https://www.bing.com/rewards/panelflyout/getuserinfo")
 
         assert response.status_code == requests.codes.ok
-        return response.json()["userInfo"]
+        # fixme Add more asserts
+        # todo Add fallback to src.utils.Utils.getDashboardData (slower but more reliable)
+        return response.json()
 
     @staticmethod
     def makeRequestsSession(session: Session = requests.session()) -> Session:
         retry = Retry(
-            total=5, backoff_factor=1, status_forcelist=[500, 502, 503, 504]
+            total=5,
+            backoff_factor=1,
+            status_forcelist=[
+                500,
+                502,
+                503,
+                504,
+            ],  # todo Use global retries from config
         )
         session.mount(
             "https://", HTTPAdapter(max_retries=retry)
@@ -162,6 +256,8 @@ class Utils:
 
     def isLoggedIn(self) -> bool:
         # return self.getBingInfo()["isRewardsUser"]  # todo For some reason doesn't work, but doesn't involve changing url so preferred
+        if self.getBingInfo()["isRewardsUser"]:  # faster, if it works
+            return True
         self.webdriver.get(
             "https://rewards.bing.com/Signin/"
         )  # changed site to allow bypassing when M$ blocks access to login.live.com randomly
@@ -173,7 +269,7 @@ class Utils:
         return False
 
     def getAccountPoints(self) -> int:
-        return self.getBingInfo()["balance"]
+        return self.getBingInfo()["userInfo"]["balance"]
 
     def getGoalPoints(self) -> int:
         return self.getDashboardData()["userStatus"]["redeemGoal"]["price"]
@@ -182,7 +278,7 @@ class Utils:
         return self.getDashboardData()["userStatus"]["redeemGoal"]["title"]
 
     def tryDismissAllMessages(self) -> None:
-        buttons = [
+        byValues = [
             (By.ID, "iLandingViewAction"),
             (By.ID, "iShowSkip"),
             (By.ID, "iNext"),
@@ -190,40 +286,32 @@ class Utils:
             (By.ID, "idSIButton9"),
             (By.ID, "bnp_btn_accept"),
             (By.ID, "acceptButton"),
+            (By.CSS_SELECTOR, ".dashboardPopUpPopUpSelectButton"),
         ]
-        for button in buttons:
-            try:
-                elements = self.webdriver.find_elements(by=button[0], value=button[1])
-            except (NoSuchElementException, ElementNotInteractableException):  # Expected?
-                logging.debug("", exc_info=True)
-                continue
-            for element in elements:
-                element.click()
-        self.tryDismissCookieBanner()
-        self.tryDismissBingCookieBanner()
-
-    def tryDismissCookieBanner(self) -> None:
-        with contextlib.suppress(NoSuchElementException, ElementNotInteractableException):  # Expected
+        for byValue in byValues:
+            dismissButtons = []
+            with contextlib.suppress(NoSuchElementException):
+                dismissButtons = self.webdriver.find_elements(
+                    by=byValue[0], value=byValue[1]
+                )
+            for dismissButton in dismissButtons:
+                dismissButton.click()
+        with contextlib.suppress(NoSuchElementException):
             self.webdriver.find_element(By.ID, "cookie-banner").find_element(
                 By.TAG_NAME, "button"
             ).click()
 
-    def tryDismissBingCookieBanner(self) -> None:
-        with contextlib.suppress(NoSuchElementException, ElementNotInteractableException):  # Expected
-            self.webdriver.find_element(By.ID, "bnp_btn_accept").click()
-
-    def switchToNewTab(self, timeToWait: float = 0) -> None:
+    def switchToNewTab(self, timeToWait: float = 0, closeTab: bool = False) -> None:
+        time.sleep(timeToWait)
         self.webdriver.switch_to.window(window_name=self.webdriver.window_handles[1])
+        if closeTab:
+            self.closeCurrentTab()
 
     def closeCurrentTab(self) -> None:
         self.webdriver.close()
         time.sleep(0.5)
         self.webdriver.switch_to.window(window_name=self.webdriver.window_handles[0])
         time.sleep(0.5)
-
-    def visitNewTab(self, timeToWait: float = 0) -> None:
-        self.switchToNewTab(timeToWait)
-        self.closeCurrentTab()
 
     @staticmethod
     def formatNumber(number, num_decimals=2) -> str:
@@ -251,3 +339,38 @@ class Utils:
         except (ElementClickInterceptedException, ElementNotInteractableException):
             self.tryDismissAllMessages()
             element.click()
+
+    def acceptNewPrivacy(self):
+        time.sleep(3)
+        self.waitUntilVisible(By.ID, "id__0", timeToWait=15)
+        self.webdriver.execute_script(
+            "window.scrollTo(0, document.body.scrollHeight);")
+        self.waitUntilClickable(By.ID, "id__0", timeToWait=15)
+        self.webdriver.find_element(By.ID, "id__0").click()
+        WebDriverWait(self.webdriver, 25).until_not(
+            expected_conditions.visibility_of_element_located((By.ID, "id__0")))
+        time.sleep(5)
+
+    def answerUpdatingTerms(self):
+        # Accept updated terms
+        time.sleep(2)
+        self.webdriver.find_element(By.ID, 'iNext').click()
+        time.sleep(5)
+
+    def answerToSecurityQuestion(self):
+        # Click Looks good on security question
+        time.sleep(2)
+        self.webdriver.find_element(By.ID, 'iLooksGood').click()
+        time.sleep(5)
+
+    def answerToBreakFreeFromPassword(self):
+        # Click No thanks on break free from password question
+        time.sleep(2)
+        self.webdriver.find_element(By.ID, "iCancel").click()
+        time.sleep(5)
+
+    def closeAddRecovery(self):
+        self.webdriver.find_element(By.ID, 'landing-page-dialog.close').click()
+
+CONFIG = Utils.loadConfig()
+PRIVATE_CONFIG = Utils.loadPrivateConfig()

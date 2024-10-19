@@ -1,20 +1,25 @@
 import argparse
+import contextlib
+import locale
 import logging
+import os
 import random
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Type
 
 import ipapi
+import pycountry
 import seleniumwire.undetected_chromedriver as webdriver
 import undetected_chromedriver
 from ipapi.exceptions import RateLimited
 from selenium.webdriver import ChromeOptions
 from selenium.webdriver.chrome.webdriver import WebDriver
+from selenium.webdriver.common.by import By
 
 from src import Account, RemainingSearches
 from src.userAgentGenerator import GenerateUserAgent
-from src.utils import Utils
+from src.utils import Utils, CONFIG
 
 
 class Browser:
@@ -33,7 +38,7 @@ class Browser:
         self.username = account.username
         self.password = account.password
         self.totp = account.totp
-        self.localeLang, self.localeGeo = self.getCCodeLang(args.lang, args.geo)
+        self.localeLang, self.localeGeo = self.getLanguageCountry(args.lang, args.geo)
         self.proxy = None
         if args.proxy:
             self.proxy = args.proxy
@@ -58,10 +63,10 @@ class Browser:
         return self
 
     def __exit__(
-            self,
-            exc_type: Type[BaseException] | None,
-            exc_value: BaseException | None,
-            traceback: TracebackType | None,
+        self,
+        exc_type: Type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
     ):
         # Cleanup actions when exiting the browser context
         logging.debug(
@@ -79,10 +84,15 @@ class Browser:
         options.headless = self.headless
         options.add_argument(f"--lang={self.localeLang}")
         options.add_argument("--log-level=3")
-        options.add_argument("--blink-settings=imagesEnabled=false")      #If you are having MFA sign in issues comment this line out
+        options.add_argument(
+            "--blink-settings=imagesEnabled=false"
+        )  # If you are having MFA sign in issues comment this line out
         options.add_argument("--ignore-certificate-errors")
         options.add_argument("--ignore-certificate-errors-spki-list")
         options.add_argument("--ignore-ssl-errors")
+        if os.environ.get("DOCKER"):
+            options.add_argument("--disable-dev-shm-usage")
+            options.add_argument("--headless=new")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-extensions")
         options.add_argument("--dns-prefetch-disable")
@@ -90,7 +100,8 @@ class Browser:
         options.add_argument("--disable-default-apps")
         options.add_argument("--disable-features=Translate")
         options.add_argument("--disable-features=PrivacySandboxSettings4")
-        options.add_argument("--disable-search-engine-choice-screen") #153
+        options.add_argument("--disable-http2")
+        options.add_argument("--disable-search-engine-choice-screen")  # 153
 
         seleniumwireOptions: dict[str, Any] = {"verify_ssl": False}
 
@@ -101,17 +112,26 @@ class Browser:
                 "https": self.proxy,
                 "no_proxy": "localhost,127.0.0.1",
             }
+        driver = None
 
-        # Obtain webdriver chrome driver version
-        version = self.getChromeVersion()
-        major = int(version.split(".")[0])
+        if os.environ.get("DOCKER"):
+            driver = webdriver.Chrome(
+                options=options,
+                seleniumwire_options=seleniumwireOptions,
+                user_data_dir=self.userDataDir.as_posix(),
+                driver_executable_path="/usr/bin/chromedriver",
+            )
+        else:
+            # Obtain webdriver chrome driver version
+            version = self.getChromeVersion()
+            major = int(version.split(".")[0])
 
-        driver = webdriver.Chrome(
-            options=options,
-            seleniumwire_options=seleniumwireOptions,
-            user_data_dir=self.userDataDir.as_posix(),
-            version_main=major,
-        )
+            driver = webdriver.Chrome(
+                options=options,
+                seleniumwire_options=seleniumwireOptions,
+                user_data_dir=self.userDataDir.as_posix(),
+                version_main=major,
+            )
 
         seleniumLogger = logging.getLogger("seleniumwire")
         seleniumLogger.setLevel(logging.ERROR)
@@ -200,19 +220,49 @@ class Browser:
         return sessionsDir
 
     @staticmethod
-    def getCCodeLang(lang: str, geo: str) -> tuple:
-        if lang is None or geo is None:
+    def getLanguageCountry(language: str, country: str) -> tuple[str, str]:
+        if not country:
+            country = CONFIG.get("default", {}).get("location")
+        
+        if not language or not country:
+            currentLocale = locale.getlocale()
+            if not language:
+                with contextlib.suppress(AttributeError, ValueError):
+                    lang_code = currentLocale[0].split("_")[0]
+                    lang = pycountry.languages.get(alpha_2=lang_code)
+                    if not lang:
+                        lang = pycountry.languages.get(alpha_3=lang_code)
+                    if lang and hasattr(lang, 'alpha_2'):
+                        language = lang.alpha_2
+            if not country:
+                with contextlib.suppress(AttributeError, ValueError):
+                    country_code = currentLocale[0].split("_")[1]
+                    country_obj = pycountry.countries.get(alpha_2=country_code)
+                    if country_obj:
+                        country = country_obj.alpha_2
+        
+        if not language or not country:
             try:
-                nfo = ipapi.location()
+                ipapiLocation = ipapi.location()
+                if not language:
+                    # 假设 ipapiLocation["languages"] 返回类似 "en-US,en;q=0.9"
+                    language = ipapiLocation["languages"].split(",")[0].split("-")[0]
+                if not country:
+                    country = ipapiLocation["country"]
             except RateLimited:
-                logging.warning("Returning default", exc_info=True)
-                return "en", "US"
-            if isinstance(nfo, dict):
-                if lang is None:
-                    lang = nfo["languages"].split(",")[0].split("-")[0]
-                if geo is None:
-                    geo = nfo["country"]
-        return lang, geo
+                logging.warning("Rate limited when accessing ipapi location.", exc_info=True)
+        
+        if not language:
+            language = "en"
+            logging.warning(
+                f"Not able to determine language. Returning default: {language}"
+            )
+        
+        if not country:
+            country = "US"
+            logging.warning(f"Not able to determine country. Returning default: {country}")
+        
+        return language, country
 
     @staticmethod
     def getChromeVersion() -> str:

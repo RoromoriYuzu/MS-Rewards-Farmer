@@ -2,10 +2,13 @@ import logging
 import urllib.parse
 from datetime import datetime
 
+from typing_extensions import deprecated
+
 from src.browser import Browser
 from .activities import Activities
 
 
+@deprecated("Use Activities")
 class DailySet:
     def __init__(self, browser: Browser):
         self.browser = browser
@@ -17,6 +20,7 @@ class DailySet:
         logging.info("[DAILY SET] " + "Trying to complete the Daily Set...")
         data = self.browser.utils.getDashboardData()["dailySetPromotions"]
         self.browser.utils.goToRewards()
+        self.activities.dashboardPopUpModalCloseCross()
         todayDate = datetime.now().strftime("%m/%d/%Y")
         for activity in data.get(todayDate, []):
             cardId = int(activity["offerId"][-1:])
@@ -39,9 +43,7 @@ class DailySet:
                         )
                         # Complete This or That for a specific point progress max
                         self.activities.completeThisOrThat()
-                    elif (
-                        activity["pointProgressMax"] in [40, 30]
-                    ):
+                    elif activity["pointProgressMax"] in [40, 30]:
                         logging.info(f"[DAILY SET] Completing quiz of card {cardId}")
                         # Complete quiz for specific point progress max
                         self.activities.completeQuiz()
