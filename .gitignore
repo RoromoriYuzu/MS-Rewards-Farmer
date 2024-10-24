@@ -187,3 +187,8 @@ runbot.bat
 /google_trends.dir
 /google_trends.bak
 /config-private.yaml
+/.idea/inspectionProfiles/profiles_settings.xml
+/.idea/misc.xml
+/.idea/MS-Rewards-Farmer.iml
+/.idea/vcs.xml
+/.idea/workspace.xml

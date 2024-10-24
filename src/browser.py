@@ -19,7 +19,7 @@ from selenium.webdriver.common.by import By
 
 from src import Account, RemainingSearches
 from src.userAgentGenerator import GenerateUserAgent
-from src.utils import Utils, CONFIG
+from src.utils import Utils, CONFIG, saveBrowserConfig, getProjectRoot, getBrowserConfig
 
 
 class Browser:
@@ -45,7 +45,7 @@ class Browser:
         elif account.proxy:
             self.proxy = account.proxy
         self.userDataDir = self.setupProfiles()
-        self.browserConfig = Utils.getBrowserConfig(self.userDataDir)
+        self.browserConfig = getBrowserConfig(self.userDataDir)
         (
             self.userAgent,
             self.userAgentMetadata,
@@ -53,7 +53,7 @@ class Browser:
         ) = GenerateUserAgent().userAgent(self.browserConfig, mobile)
         if newBrowserConfig:
             self.browserConfig = newBrowserConfig
-            Utils.saveBrowserConfig(self.userDataDir, self.browserConfig)
+            saveBrowserConfig(self.userDataDir, self.browserConfig)
         self.webdriver = self.browserSetup()
         self.utils = Utils(self.webdriver)
         logging.debug("out __init__")
@@ -102,6 +102,7 @@ class Browser:
         options.add_argument("--disable-features=PrivacySandboxSettings4")
         options.add_argument("--disable-http2")
         options.add_argument("--disable-search-engine-choice-screen")  # 153
+        options.page_load_strategy = 'eager'
 
         seleniumwireOptions: dict[str, Any] = {"verify_ssl": False}
 
@@ -150,7 +151,7 @@ class Browser:
                 "height": deviceHeight,
                 "width": deviceWidth,
             }
-            Utils.saveBrowserConfig(self.userDataDir, self.browserConfig)
+            saveBrowserConfig(self.userDataDir, self.browserConfig)
 
         if self.mobile:
             screenHeight = deviceHeight + 146
@@ -210,7 +211,7 @@ class Browser:
         Returns:
             Path
         """
-        sessionsDir = Utils.getProjectRoot() / "sessions"
+        sessionsDir = getProjectRoot() / "sessions"
 
         # Concatenate username and browser type for a plain text session ID
         sessionid = f"{self.username}"
@@ -222,46 +223,41 @@ class Browser:
     @staticmethod
     def getLanguageCountry(language: str, country: str) -> tuple[str, str]:
         if not country:
-            country = CONFIG.get("default", {}).get("location")
-        
+            country = CONFIG.get("default").get("location")
+
         if not language or not country:
             currentLocale = locale.getlocale()
             if not language:
-                with contextlib.suppress(AttributeError, ValueError):
-                    lang_code = currentLocale[0].split("_")[0]
-                    lang = pycountry.languages.get(alpha_2=lang_code)
-                    if not lang:
-                        lang = pycountry.languages.get(alpha_3=lang_code)
-                    if lang and hasattr(lang, 'alpha_2'):
-                        language = lang.alpha_2
+                with contextlib.suppress(ValueError):
+                    language = pycountry.languages.get(
+                        name=currentLocale[0].split("_")[0]
+                    ).alpha_2
             if not country:
-                with contextlib.suppress(AttributeError, ValueError):
-                    country_code = currentLocale[0].split("_")[1]
-                    country_obj = pycountry.countries.get(alpha_2=country_code)
-                    if country_obj:
-                        country = country_obj.alpha_2
-        
+                with contextlib.suppress(ValueError):
+                    country = pycountry.countries.get(
+                        name=currentLocale[0].split("_")[1]
+                    ).alpha_2
+
         if not language or not country:
             try:
                 ipapiLocation = ipapi.location()
                 if not language:
-                    # 假设 ipapiLocation["languages"] 返回类似 "en-US,en;q=0.9"
                     language = ipapiLocation["languages"].split(",")[0].split("-")[0]
                 if not country:
                     country = ipapiLocation["country"]
             except RateLimited:
-                logging.warning("Rate limited when accessing ipapi location.", exc_info=True)
-        
+                logging.warning(exc_info=True)
+
         if not language:
             language = "en"
             logging.warning(
-                f"Not able to determine language. Returning default: {language}"
+                f"Not able to figure language returning default: {language}"
             )
-        
+
         if not country:
             country = "US"
-            logging.warning(f"Not able to determine country. Returning default: {country}")
-        
+            logging.warning(f"Not able to figure country returning default: {country}")
+
         return language, country
 
     @staticmethod
@@ -279,29 +275,32 @@ class Browser:
         return version
 
     def getRemainingSearches(
-            self, desktopAndMobile: bool = False
+        self, desktopAndMobile: bool = False
     ) -> RemainingSearches | int:
-        dashboard = self.utils.getDashboardData()
+        bingInfo = self.utils.getBingInfo()
         searchPoints = 1
-        counters = dashboard["userStatus"]["counters"]
+        counters = bingInfo["flyoutResult"]["userStatus"]["counters"]
+        pcSearch: dict = counters["PCSearch"][0]
+        mobileSearch: dict = counters["MobileSearch"][0]
+        pointProgressMax: int = pcSearch["pointProgressMax"]
 
-        progressDesktop = counters["pcSearch"][0]["pointProgress"]
-        targetDesktop = counters["pcSearch"][0]["pointProgressMax"]
-        if len(counters["pcSearch"]) >= 2:
-            progressDesktop = progressDesktop + counters["pcSearch"][1]["pointProgress"]
-            targetDesktop = targetDesktop + counters["pcSearch"][1]["pointProgressMax"]
-        if targetDesktop in [30, 90, 102]:
+        searchPoints: int
+        if pointProgressMax in [30, 90, 102]:
             searchPoints = 3
-        elif targetDesktop == 50 or targetDesktop >= 170 or targetDesktop == 150:
+        elif pointProgressMax in [50, 150] or pointProgressMax >= 170:
             searchPoints = 5
-        remainingDesktop = int((targetDesktop - progressDesktop) / searchPoints)
-        remainingMobile = 0
-        if dashboard["userStatus"]["levelInfo"]["activeLevel"] != "Level1":
-            progressMobile = counters["mobileSearch"][0]["pointProgress"]
-            targetMobile = counters["mobileSearch"][0]["pointProgressMax"]
-            remainingMobile = int((targetMobile - progressMobile) / searchPoints)
+        pcPointsRemaining = pcSearch["pointProgressMax"] - pcSearch["pointProgress"]
+        assert pcPointsRemaining % searchPoints == 0
+        remainingDesktopSearches: int = int(pcPointsRemaining / searchPoints)
+        mobilePointsRemaining = (
+            mobileSearch["pointProgressMax"] - mobileSearch["pointProgress"]
+        )
+        assert mobilePointsRemaining % searchPoints == 0
+        remainingMobileSearches: int = int(mobilePointsRemaining / searchPoints)
         if desktopAndMobile:
-            return RemainingSearches(desktop=remainingDesktop, mobile=remainingMobile)
+            return RemainingSearches(
+                desktop=remainingDesktopSearches, mobile=remainingMobileSearches
+            )
         if self.mobile:
-            return remainingMobile
-        return remainingDesktop
+            return remainingMobileSearches
+        return remainingDesktopSearches

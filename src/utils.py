@@ -42,7 +42,7 @@ DEFAULT_CONFIG: MappingProxyType = MappingProxyType(
             "summary": "ON_ERROR",
         },
         "default": {"geolocation": "US"},
-        "logging": {"level": "DEBUG"},
+        "logging": {"level": "INFO"},
         "retries": {
             "base_delay_in_seconds": 14.0625,
             "max": 4,
@@ -70,82 +70,15 @@ class Utils:
 
         # self.config = self.loadConfig()
 
-    @staticmethod
-    def getProjectRoot() -> Path:
-        return Path(__file__).parent.parent
-
-    @staticmethod
-    def loadYaml(path: Path) -> dict:
-        with open(path, "r") as file:
-            yamlContents = yaml.safe_load(file)
-            if not yamlContents:
-                logging.info(f"{yamlContents} is empty")
-                yamlContents = {}
-            return yamlContents
-
-    @staticmethod
-    def loadConfig(
-            configFilename="config.yaml", defaultConfig=DEFAULT_CONFIG
-    ) -> MappingProxyType:
-        configFile = Utils.getProjectRoot() / configFilename
-        try:
-            return MappingProxyType(defaultConfig | Utils.loadYaml(configFile))
-        except OSError:
-            logging.info(f"{configFile} doesn't exist, returning defaults")
-            return defaultConfig
-
-    @staticmethod
-    def loadPrivateConfig() -> MappingProxyType:
-        return Utils.loadConfig("config-private.yaml", DEFAULT_PRIVATE_CONFIG)
-
-    @staticmethod
-    def getCCodeLangAndOffset() -> tuple:
-        """Get lang, geo, time zone"""
-        try:
-            nfo = ipapi.location()
-            lang = nfo['languages'].split(',')[0]
-            geo = nfo['country']
-            ip = " ".join([nfo['ip'], nfo['country_name'], nfo['region'], nfo['city']])
-            tz = str(round(int(nfo['utc_offset']) / 100 * 60))
-            return lang, geo, tz, ip
-        except:
-            return 'en-US', 'US', '-480', '127.0.0.1 localhost'
-
-    @staticmethod
-    def sendNotification(title, body, e: Exception = None) -> None:
-        if Utils.args.disable_apprise or (
-                e
-                and not CONFIG.get("apprise")
-                .get("notify")
-                .get("uncaught-exception")
-                .get("enabled")
-        ):
-            return
-        apprise = Apprise()
-        urls: list[str] = (
-            # Utils.loadConfig("config-private.yaml").get("apprise", {}).get("urls", [])
-            PRIVATE_CONFIG.get("apprise").get("urls")
-        )
-        if not urls:
-            logging.debug("No urls found, not sending notification")
-            return
-        for url in urls:
-            apprise.add(url)
-
-        lang, geo, tz, ip = Utils.getCCodeLangAndOffset()
-        additional_info = f"\n Lang: {lang}, Geo: {geo}, TZ: {tz}, IP: {ip}"
-
-        assert apprise.notify(title=str(title), body=str(body) + additional_info)
-
     def waitUntilVisible(
-            self, by: str, selector: str, timeToWait: float = 10
+        self, by: str, selector: str, timeToWait: float = 10
     ) -> WebElement:
         return WebDriverWait(self.webdriver, timeToWait).until(
             expected_conditions.visibility_of_element_located((by, selector))
         )
 
     def waitUntilClickable(
-            self, by: str, selector: str, timeToWait: float = 10
+        self, by: str, selector: str, timeToWait: float = 10
     ) -> WebElement:
         return WebDriverWait(self.webdriver, timeToWait).until(
             expected_conditions.element_to_be_clickable((by, selector))
@@ -186,7 +119,7 @@ class Utils:
     def goToRewards(self) -> None:
         self.webdriver.get(REWARDS_URL)
         assert (
-                self.webdriver.current_url == REWARDS_URL
+            self.webdriver.current_url == REWARDS_URL
         ), f"{self.webdriver.current_url} {REWARDS_URL}"
 
     def goToSearch(self) -> None:
@@ -194,12 +127,6 @@ class Utils:
         # assert (
         #     self.webdriver.current_url == SEARCH_URL
         # ), f"{self.webdriver.current_url} {SEARCH_URL}"  # need regex: AssertionError: https://www.bing.com/?toWww=1&redig=A5B72363182B49DEBB7465AD7520FDAA https://bing.com/
-
-    @staticmethod
-    def getAnswerCode(key: str, string: str) -> str:
-        t = sum(ord(string[i]) for i in range(len(string)))
-        t += int(key[-2:], 16)
-        return str(t)
 
     # Prefer getBingInfo if possible
     def getDashboardData(self) -> dict:
@@ -222,7 +149,7 @@ class Utils:
         return self.getDashboardData()["morePromotions"]
 
     def getBingInfo(self) -> Any:
-        session = self.makeRequestsSession()
+        session = makeRequestsSession()
 
         for cookie in self.webdriver.get_cookies():
             session.cookies.set(cookie["name"], cookie["value"])
@@ -234,29 +161,22 @@ class Utils:
         # todo Add fallback to src.utils.Utils.getDashboardData (slower but more reliable)
         return response.json()
 
-    @staticmethod
-    def makeRequestsSession(session: Session = requests.session()) -> Session:
-        retry = Retry(
-            total=5,
-            backoff_factor=1,
-            status_forcelist=[
-                500,
-                502,
-                503,
-                504,
-            ],  # todo Use global retries from config
-        )
-        session.mount(
-            "https://", HTTPAdapter(max_retries=retry)
-        )  # See https://stackoverflow.com/a/35504626/4164390 to finetune
-        session.mount(
-            "http://", HTTPAdapter(max_retries=retry)
-        )  # See https://stackoverflow.com/a/35504626/4164390 to finetune
-        return session
+    def joinReward(self) -> bool:
+        try:
+            self.webdriver.get("https://www.bing.com/rewards/panelflyout/")
+            self.waitUntilVisible(By.CLASS_NAME, "joinNowText", 10).click()
+            if self.getBingInfo()["isRewardsUser"]:
+                return True
+            else:
+                return False
+        except Exception as e:
+            logging.error(f"Error joining rewards: {e}")
+            return False
 
     def isLoggedIn(self) -> bool:
-        # return self.getBingInfo()["isRewardsUser"]  # todo For some reason doesn't work, but doesn't involve changing url so preferred
-        if self.getBingInfo()["isRewardsUser"]:  # faster, if it works
+        if self.getBingInfo()["isRewardsUser"]:
+            return True
+        elif self.joinReward():
             return True
         self.webdriver.get(
             "https://rewards.bing.com/Signin/"
@@ -313,64 +233,164 @@ class Utils:
         self.webdriver.switch_to.window(window_name=self.webdriver.window_handles[0])
         time.sleep(0.5)
 
-    @staticmethod
-    def formatNumber(number, num_decimals=2) -> str:
-        return pylocale.format_string(
-            f"%10.{num_decimals}f", number, grouping=True
-        ).strip()
-
-    @staticmethod
-    def getBrowserConfig(sessionPath: Path) -> dict | None:
-        configFile = sessionPath / "config.json"
-        if not configFile.exists():
-            return
-        with open(configFile, "r") as f:
-            return json.load(f)
-
-    @staticmethod
-    def saveBrowserConfig(sessionPath: Path, config: dict) -> None:
-        configFile = sessionPath / "config.json"
-        with open(configFile, "w") as f:
-            json.dump(config, f)
-
     def click(self, element: WebElement) -> None:
         try:
+            WebDriverWait(self.webdriver, 10).until(
+                expected_conditions.element_to_be_clickable(element)
+            )
             element.click()
         except (ElementClickInterceptedException, ElementNotInteractableException):
             self.tryDismissAllMessages()
+            WebDriverWait(self.webdriver, 10).until(
+                expected_conditions.element_to_be_clickable(element)
+            )
             element.click()
 
-    def acceptNewPrivacy(self):
-        time.sleep(3)
-        self.waitUntilVisible(By.ID, "id__0", timeToWait=15)
-        self.webdriver.execute_script(
-            "window.scrollTo(0, document.body.scrollHeight);")
-        self.waitUntilClickable(By.ID, "id__0", timeToWait=15)
-        self.webdriver.find_element(By.ID, "id__0").click()
-        WebDriverWait(self.webdriver, 25).until_not(
-            expected_conditions.visibility_of_element_located((By.ID, "id__0")))
-        time.sleep(5)
 
-    def answerUpdatingTerms(self):
-        # Accept updated terms
-        time.sleep(2)
-        self.webdriver.find_element(By.ID, 'iNext').click()
-        time.sleep(5)
+def getProjectRoot() -> Path:
+    return Path(__file__).parent.parent
 
-    def answerToSecurityQuestion(self):
-        # Click Looks good on security question
-        time.sleep(2)
-        self.webdriver.find_element(By.ID, 'iLooksGood').click()
-        time.sleep(5)
 
-    def answerToBreakFreeFromPassword(self):
-        # Click No thanks on break free from password question
-        time.sleep(2)
-        self.webdriver.find_element(By.ID, "iCancel").click()
-        time.sleep(5)
+def loadYaml(path: Path) -> dict:
+    with open(path, "r") as file:
+        yamlContents = yaml.safe_load(file)
+        if not yamlContents:
+            logging.info(f"{yamlContents} is empty")
+            yamlContents = {}
+        return yamlContents
 
-    def closeAddRecovery(self):
-        self.webdriver.find_element(By.ID, 'landing-page-dialog.close').click()
 
-CONFIG = Utils.loadConfig()
-PRIVATE_CONFIG = Utils.loadPrivateConfig()
+def loadConfig(
+    configFilename="config.yaml", defaultConfig=DEFAULT_CONFIG
+) -> MappingProxyType:
+    configFile = getProjectRoot() / configFilename
+    try:
+        return MappingProxyType(defaultConfig | loadYaml(configFile))
+    except OSError:
+        logging.info(f"{configFile} doesn't exist, returning defaults")
+        return defaultConfig
+
+
+def loadPrivateConfig() -> MappingProxyType:
+    return loadConfig("config-private.yaml", DEFAULT_PRIVATE_CONFIG)
+
+
+def getCCodeLangAndOffset() -> tuple:
+    """Get lang, geo, time zone"""
+    try:
+        nfo = ipapi.location()
+        lang = nfo['languages'].split(',')[0]
+        geo = nfo['country']
+        ip = " ".join([nfo['ip'], nfo['country_name'], nfo['region'], nfo['city']])
+        tz = str(round(int(nfo['utc_offset']) / 100 * 60))
+        return lang, geo, tz, ip
+    except:
+        return 'en-US', 'US', '-480', '127.0.0.1 localhost'
+
+
+def sendNotification(title: str, body: str, e: Exception = None) -> None:
+    if Utils.args.disable_apprise or (
+        e
+        and not CONFIG.get("apprise")
+        .get("notify")
+        .get("uncaught-exception")
+        .get("enabled")
+    ):
+        return
+    apprise = Apprise()
+    urls: list[str] = PRIVATE_CONFIG.get("apprise").get("urls")
+    if not urls:
+        logging.debug("No urls found, not sending notification")
+        return
+    for url in urls:
+        apprise.add(url)
+
+    lang, geo, tz, ip = getCCodeLangAndOffset()
+    additional_info = f"\n Lang: {lang}, Geo: {geo}, TZ: {tz}, IP: {ip}"
+    body += additional_info
+    assert apprise.notify(title=str(title), body=str(body))
+
+
+def getAnswerCode(key: str, string: str) -> str:
+    t = sum(ord(string[i]) for i in range(len(string)))
+    t += int(key[-2:], 16)
+    return str(t)
+
+
+def formatNumber(number, num_decimals=2) -> str:
+    return pylocale.format_string(f"%10.{num_decimals}f", number, grouping=True).strip()
+
+
+def getBrowserConfig(sessionPath: Path) -> dict | None:
+    configFile = sessionPath / "config.json"
+    if not configFile.exists():
+        return
+    with open(configFile, "r") as f:
+        return json.load(f)
+
+
+def saveBrowserConfig(sessionPath: Path, config: dict) -> None:
+    configFile = sessionPath / "config.json"
+    with open(configFile, "w") as f:
+        json.dump(config, f)
+
+def click(self, element: WebElement) -> None:
+    try:
+        element.click()
+    except (ElementClickInterceptedException, ElementNotInteractableException):
+        self.tryDismissAllMessages()
+        element.click()
+
+def acceptNewPrivacy(self):
+    time.sleep(3)
+    self.waitUntilVisible(By.ID, "id__0", timeToWait=15)
+    self.webdriver.execute_script(
+        "window.scrollTo(0, document.body.scrollHeight);")
+    self.waitUntilClickable(By.ID, "id__0", timeToWait=15)
+    self.webdriver.find_element(By.ID, "id__0").click()
+    WebDriverWait(self.webdriver, 25).until_not(
+        expected_conditions.visibility_of_element_located((By.ID, "id__0")))
+    time.sleep(5)
+
+def makeRequestsSession(session: Session = requests.session()) -> Session:
+    retry = Retry(
+        total=5,
+        backoff_factor=1,
+        status_forcelist=[
+            500,
+            502,
+            503,
+            504,
+        ],  # todo Use global retries from config
+    )
+    session.mount(
+        "https://", HTTPAdapter(max_retries=retry)
+    )  # See https://stackoverflow.com/a/35504626/4164390 to finetune
+    session.mount(
+        "http://", HTTPAdapter(max_retries=retry)
+    )  # See https://stackoverflow.com/a/35504626/4164390 to finetune
+    return session
+
+def answerUpdatingTerms(self):
+    # Accept updated terms
+    time.sleep(2)
+    self.webdriver.find_element(By.ID, 'iNext').click()
+    time.sleep(5)
+
+def answerToSecurityQuestion(self):
+    # Click Looks good on security question
+    time.sleep(2)
+    self.webdriver.find_element(By.ID, 'iLooksGood').click()
+    time.sleep(5)
+
+def answerToBreakFreeFromPassword(self):
+    # Click No thanks on break free from password question
+    time.sleep(2)
+    self.webdriver.find_element(By.ID, "iCancel").click()
+    time.sleep(5)
+
+def closeAddRecovery(self):
+    self.webdriver.find_element(By.ID, 'landing-page-dialog.close').click()
+
+CONFIG = loadConfig()
+PRIVATE_CONFIG = loadPrivateConfig()

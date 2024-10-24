@@ -80,6 +80,7 @@ class Login:
 
     def login(self) -> None:
         try:
+            self.webdriver.get("https://rewards.bing.com/")
             if self.utils.isLoggedIn():
                 logging.info("[LOGIN] Already logged-in")
                 self.check_updateInfo()
