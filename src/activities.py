@@ -13,7 +13,8 @@ from src.utils import CONFIG, sendNotification, getAnswerCode
 
 # todo These are US-English specific, maybe there's a good way to internationalize
 ACTIVITY_TITLE_TO_SEARCH = {
-    "Discover open job roles": "walmart open job roles",
+    "Black Friday shopping": "black friday deals",
+    "Discover open job roles": "jobs at microsoft",
     "Expand your vocabulary": "define demure",
     "Find places to stay": "hotels rome italy",
     "Find somewhere new to explore": "directions to new york",
@@ -31,6 +32,7 @@ ACTIVITY_TITLE_TO_SEARCH = {
     "Too tired to cook tonight?": "Pizza Hut near me",
     "Translate anything": "translate pencil sharpener to spanish",
     "What time is it?": "china time",
+    "What's for Thanksgiving dinner?": "pumpkin pie recipe",
     "Who won?": "braves score",
     "You can track your package": "usps tracking",
 }
@@ -49,7 +51,7 @@ class Activities:
             f'//*[@id="daily-sets"]/mee-card-group[1]/div/mee-card[{cardId}]/div/card-content/mee-rewards-daily-set-item-content/div/a',
         )
         self.browser.utils.click(element)
-        self.browser.utils.switchToNewTab(timeToWait=8)
+        self.browser.utils.switchToNewTab()
 
     def openMorePromotionsActivity(self, cardId: int):
         cardId += 1
@@ -59,27 +61,22 @@ class Activities:
             f"#more-activities > .m-card-group > .ng-scope:nth-child({cardId}) .ds-card-sec",
         )
         self.browser.utils.click(element)
-        self.browser.utils.switchToNewTab(timeToWait=8)
+        self.browser.utils.switchToNewTab()
 
     def completeSearch(self):
         # Simulate completing a search activity
-        sleep(randint(20, 30))
-        # WebDriverWait(self.webdriver, 30).until()
-        self.browser.utils.closeCurrentTab()
+        pass
 
     def completeSurvey(self):
         # Simulate completing a survey activity
         # noinspection SpellCheckingInspection
         self.webdriver.find_element(By.ID, f"btoption{randint(0, 1)}").click()
-        sleep(randint(10, 15))
-        self.browser.utils.closeCurrentTab()
 
     def completeQuiz(self):
         # Simulate completing a quiz activity
         with contextlib.suppress(TimeoutException):
             startQuiz = self.browser.utils.waitUntilQuizLoads()
             self.browser.utils.click(startQuiz)
-        # this is bugged on Chrome for some reason
         self.browser.utils.waitUntilVisible(By.ID, "overlayPanel", 5)
         currentQuestionNumber: int = self.webdriver.execute_script(
             "return _w.rewardsQuizRenderInfo.currentQuestionNumber"
@@ -121,7 +118,6 @@ class Activities:
 
                         self.browser.utils.waitUntilQuestionRefresh()
                         break
-        self.browser.utils.closeCurrentTab()
 
     def completeABC(self):
         # Simulate completing an ABC activity
@@ -138,8 +134,6 @@ class Activities:
             element = self.webdriver.find_element(By.ID, f"nextQuestionbtn{question}")
             self.browser.utils.click(element)
             sleep(randint(10, 15))
-        sleep(randint(1, 7))
-        self.browser.utils.closeCurrentTab()
 
     def completeThisOrThat(self):
         # Simulate completing a This or That activity
@@ -164,8 +158,6 @@ class Activities:
             self.browser.utils.click(answerToClick)
             sleep(randint(10, 15))
 
-        sleep(randint(10, 15))
-        self.browser.utils.closeCurrentTab()
 
     def getAnswerAndCode(self, answerId: str) -> tuple[WebElement, str]:
         # Helper function to get answer element and its code
@@ -184,6 +176,9 @@ class Activities:
             if activity["complete"] is True or activity["pointProgressMax"] == 0:
                 logging.debug("Already done, returning")
                 return
+            if "Safeguard your family's info" == activityTitle:
+                logging.debug("Skipping Safeguard your family's info")
+                return
             # Open the activity for the activity
             cardId = activities.index(activity)
             isDailySet = "daily_set_date" in activity["attributes"]
@@ -191,13 +186,12 @@ class Activities:
                 self.openDailySetActivity(cardId)
             else:
                 self.openMorePromotionsActivity(cardId)
-            self.browser.webdriver.execute_script("window.scrollTo(0, 1080)")
-            sleep(1)
             with contextlib.suppress(TimeoutException):
                 searchbar = self.browser.utils.waitUntilClickable(By.ID, "sb_form_q")
                 self.browser.utils.click(searchbar)
             if activityTitle in ACTIVITY_TITLE_TO_SEARCH:
                 searchbar.send_keys(ACTIVITY_TITLE_TO_SEARCH[activityTitle])
+                sleep(2)
                 searchbar.submit()
             elif "poll" in activityTitle:
                 logging.info(f"[ACTIVITY] Completing poll of card {cardId}")
@@ -217,12 +211,11 @@ class Activities:
             else:
                 # Default to completing search
                 self.completeSearch()
-            self.browser.webdriver.execute_script("window.scrollTo(0, 1080)")
-            # sleep(randint(5, 10))
         except Exception:
             logging.error(f"[ACTIVITY] Error doing {activityTitle}", exc_info=True)
+        # todo Make configurable
+        sleep(randint(300, 600))
         self.browser.utils.resetTabs()
-        # sleep(randint(900, 1200))
 
     def completeActivities(self):
         logging.info("[DAILY SET] " + "Trying to complete the Daily Set...")
@@ -240,6 +233,7 @@ class Activities:
         logging.info("[MORE PROMOS] Done")
 
         # todo Send one email for all accounts?
+        # fixme This is falsely considering some activities incomplete when complete
         if (
             CONFIG.get("apprise")
             .get("notify")
@@ -265,6 +259,7 @@ class Activities:
             ):
                 incompleteActivities.pop("Safeguard your family's info", None)
             if incompleteActivities:
+                logging.info(f"incompleteActivities: {incompleteActivities}")
                 sendNotification(
                     f"We found some incomplete activities for {self.browser.username}",
                     str(incompleteActivities) + "\n" + REWARDS_URL,

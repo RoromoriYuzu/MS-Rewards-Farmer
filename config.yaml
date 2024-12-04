@@ -1,7 +1,19 @@
 # config.yaml
 apprise:
+  notify:
+    incomplete-activity:
+      enabled: True # True or False
+      ignore-safeguard-info: True
+    uncaught-exception:
+      enabled: True # True or False
+    login-code:
+      enabled: True # True or False
   summary: ON_ERROR
+default:
+  geolocation: US # Replace with your country code https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2
+logging:
+  level: INFO # See https://docs.python.org/3/library/logging.html#logging-levels
 retries:
-  base_delay_in_seconds: 14.0625 # base_delay_in_seconds * 2^max = 14.0625 * 2^6 = 900 = 15 minutes
-  max: 8
+  base_delay_in_seconds: 120 # base_delay_in_seconds * 2^max = 14.0625 * 2^6 = 900 = 15 minutes
+  max: 4
   strategy: EXPONENTIAL

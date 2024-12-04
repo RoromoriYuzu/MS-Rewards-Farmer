@@ -28,7 +28,7 @@ class Browser:
     webdriver: undetected_chromedriver.Chrome
 
     def __init__(
-            self, mobile: bool, account: Account, args: argparse.Namespace
+        self, mobile: bool, account: Account, args: argparse.Namespace
     ) -> None:
         # Initialize browser instance
         logging.debug("in __init__")
@@ -63,10 +63,10 @@ class Browser:
         return self
 
     def __exit__(
-            self,
-            exc_type: Type[BaseException] | None,
-            exc_value: BaseException | None,
-            traceback: TracebackType | None,
+        self,
+        exc_type: Type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
     ):
         # Cleanup actions when exiting the browser context
         logging.debug(
@@ -77,7 +77,7 @@ class Browser:
         self.webdriver.quit()
 
     def browserSetup(
-            self,
+        self,
     ) -> undetected_chromedriver.Chrome:
         # Configure and setup the Chrome browser
         options = undetected_chromedriver.ChromeOptions()
@@ -279,16 +279,16 @@ class Browser:
         return version
 
     def getRemainingSearches(
-            self, desktopAndMobile: bool = False
+        self, desktopAndMobile: bool = False
     ) -> RemainingSearches | int:
-        bingInfo = self.utils.getBingInfo()
+        # bingInfo = self.utils.getBingInfo()
+        bingInfo = self.utils.getDashboardData()
         searchPoints = 1
-        counters = bingInfo["flyoutResult"]["userStatus"]["counters"]
-        
-
-        pcSearch: dict = counters["PCSearch"][0]
+        counters = bingInfo["userStatus"]["counters"]
+        pcSearch: dict = counters["pcSearch"][0]
         pointProgressMax: int = pcSearch["pointProgressMax"]
 
+        searchPoints: int
         if pointProgressMax in [30, 90, 102]:
             searchPoints = 3
         elif pointProgressMax in [50, 150] or pointProgressMax >= 170:
@@ -296,25 +296,25 @@ class Browser:
         pcPointsRemaining = pcSearch["pointProgressMax"] - pcSearch["pointProgress"]
         assert pcPointsRemaining % searchPoints == 0
         remainingDesktopSearches: int = int(pcPointsRemaining / searchPoints)
-        
 
-        if "MobileSearch" in counters:
-            mobileSearch: dict = counters["MobileSearch"][0]
+        activeLevel = bingInfo["userStatus"]["levelInfo"]["activeLevel"]
+        remainingMobileSearches: int = 0
+        if activeLevel == "Level2":
+            mobileSearch: dict = counters["mobileSearch"][0]
             mobilePointsRemaining = (
                 mobileSearch["pointProgressMax"] - mobileSearch["pointProgress"]
             )
             assert mobilePointsRemaining % searchPoints == 0
-            remainingMobileSearches: int = int(mobilePointsRemaining / searchPoints)
+            remainingMobileSearches = int(mobilePointsRemaining / searchPoints)
+        elif activeLevel == "Level1":
+            pass
         else:
-            remainingMobileSearches = 0
-        
+            raise AssertionError(f"Unknown activeLevel: {activeLevel}")
 
         if desktopAndMobile:
             return RemainingSearches(
                 desktop=remainingDesktopSearches, mobile=remainingMobileSearches
             )
-        
-
         if self.mobile:
             return remainingMobileSearches
         return remainingDesktopSearches

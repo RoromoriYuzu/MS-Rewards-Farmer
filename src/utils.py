@@ -38,13 +38,14 @@ DEFAULT_CONFIG: MappingProxyType = MappingProxyType(
             "notify": {
                 "incomplete-activity": {"enabled": True, "ignore-safeguard-info": True},
                 "uncaught-exception": {"enabled": True},
+                "login-code": {"enabled": True},
             },
             "summary": "ON_ERROR",
         },
         "default": {"geolocation": "US"},
         "logging": {"level": "INFO"},
         "retries": {
-            "base_delay_in_seconds": 14.0625,
+            "base_delay_in_seconds": 120,
             "max": 4,
             "strategy": "EXPONENTIAL",
         },
@@ -71,14 +72,14 @@ class Utils:
         # self.config = self.loadConfig()
 
     def waitUntilVisible(
-            self, by: str, selector: str, timeToWait: float = 10
+        self, by: str, selector: str, timeToWait: float = 10
     ) -> WebElement:
         return WebDriverWait(self.webdriver, timeToWait).until(
             expected_conditions.visibility_of_element_located((by, selector))
         )
 
     def waitUntilClickable(
-            self, by: str, selector: str, timeToWait: float = 10
+        self, by: str, selector: str, timeToWait: float = 10
     ) -> WebElement:
         return WebDriverWait(self.webdriver, timeToWait).until(
             expected_conditions.element_to_be_clickable((by, selector))
@@ -119,7 +120,7 @@ class Utils:
     def goToRewards(self) -> None:
         self.webdriver.get(REWARDS_URL)
         assert (
-                self.webdriver.current_url == REWARDS_URL
+            self.webdriver.current_url == REWARDS_URL
         ), f"{self.webdriver.current_url} {REWARDS_URL}"
 
     def goToSearch(self) -> None:
@@ -147,6 +148,7 @@ class Utils:
     def getMorePromotions(self) -> list[dict]:
         return self.getDashboardData()["morePromotions"]
 
+    # Not reliable
     def getBingInfo(self) -> Any:
         session = makeRequestsSession()
 
@@ -159,7 +161,8 @@ class Utils:
         # fixme Add more asserts
         # todo Add fallback to src.utils.Utils.getDashboardData (slower but more reliable)
         return response.json()
-
+    
+    # 对于新账号的支持
     def joinReward(self) -> bool:
         try:
             self.webdriver.get("https://www.bing.com/rewards/panelflyout/")
@@ -175,8 +178,8 @@ class Utils:
     def isLoggedIn(self) -> bool:
         if self.getBingInfo()["isRewardsUser"]:
             return True
-        elif self.joinReward():
-            return True
+        # elif self.joinReward():
+        #     return True
         self.webdriver.get(
             "https://rewards.bing.com/Signin/"
         )  # changed site to allow bypassing when M$ blocks access to login.live.com randomly
@@ -188,7 +191,7 @@ class Utils:
         return False
 
     def getAccountPoints(self) -> int:
-        return self.getBingInfo()["userInfo"]["balance"]
+        return self.getDashboardData()["userStatus"]["availablePoints"]
 
     def getGoalPoints(self) -> int:
         return self.getDashboardData()["userStatus"]["redeemGoal"]["price"]
@@ -220,7 +223,7 @@ class Utils:
                 By.TAG_NAME, "button"
             ).click()
 
-    def switchToNewTab(self, timeToWait: float = 0, closeTab: bool = False) -> None:
+    def switchToNewTab(self, timeToWait: float = 15, closeTab: bool = False) -> None:
         time.sleep(timeToWait)
         self.webdriver.switch_to.window(window_name=self.webdriver.window_handles[1])
         if closeTab:
@@ -292,7 +295,7 @@ def loadYaml(path: Path) -> dict:
 
 
 def loadConfig(
-        configFilename="config.yaml", defaultConfig=DEFAULT_CONFIG
+    configFilename="config.yaml", defaultConfig=DEFAULT_CONFIG
 ) -> MappingProxyType:
     configFile = getProjectRoot() / configFilename
     try:
@@ -321,11 +324,11 @@ def getCCodeLangAndOffset() -> tuple:
 
 def sendNotification(title: str, body: str, e: Exception = None) -> None:
     if Utils.args.disable_apprise or (
-            e
-            and not CONFIG.get("apprise")
-            .get("notify")
-            .get("uncaught-exception")
-            .get("enabled")
+        e
+        and not CONFIG.get("apprise")
+        .get("notify")
+        .get("uncaught-exception")
+        .get("enabled")
     ):
         return
     apprise = Apprise()
