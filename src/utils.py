@@ -71,14 +71,14 @@ class Utils:
         # self.config = self.loadConfig()
 
     def waitUntilVisible(
-        self, by: str, selector: str, timeToWait: float = 10
+            self, by: str, selector: str, timeToWait: float = 10
     ) -> WebElement:
         return WebDriverWait(self.webdriver, timeToWait).until(
             expected_conditions.visibility_of_element_located((by, selector))
         )
 
     def waitUntilClickable(
-        self, by: str, selector: str, timeToWait: float = 10
+            self, by: str, selector: str, timeToWait: float = 10
     ) -> WebElement:
         return WebDriverWait(self.webdriver, timeToWait).until(
             expected_conditions.element_to_be_clickable((by, selector))
@@ -119,7 +119,7 @@ class Utils:
     def goToRewards(self) -> None:
         self.webdriver.get(REWARDS_URL)
         assert (
-            self.webdriver.current_url == REWARDS_URL
+                self.webdriver.current_url == REWARDS_URL
         ), f"{self.webdriver.current_url} {REWARDS_URL}"
 
     def goToSearch(self) -> None:
@@ -246,6 +246,38 @@ class Utils:
             )
             element.click()
 
+    def acceptNewPrivacy(self):
+        time.sleep(3)
+        self.waitUntilVisible(By.ID, "id__0", timeToWait=15)
+        self.webdriver.execute_script(
+            "window.scrollTo(0, document.body.scrollHeight);")
+        self.waitUntilClickable(By.ID, "id__0", timeToWait=15)
+        self.webdriver.find_element(By.ID, "id__0").click()
+        WebDriverWait(self.webdriver, 25).until_not(
+            expected_conditions.visibility_of_element_located((By.ID, "id__0")))
+        time.sleep(5)
+
+    def answerUpdatingTerms(self):
+        # Accept updated terms
+        time.sleep(2)
+        self.webdriver.find_element(By.ID, 'iNext').click()
+        time.sleep(5)
+
+    def answerToSecurityQuestion(self):
+        # Click Looks good on security question
+        time.sleep(2)
+        self.webdriver.find_element(By.ID, 'iLooksGood').click()
+        time.sleep(5)
+
+    def answerToBreakFreeFromPassword(self):
+        # Click No thanks on break free from password question
+        time.sleep(2)
+        self.webdriver.find_element(By.ID, "iCancel").click()
+        time.sleep(5)
+
+    def closeAddRecovery(self):
+        self.webdriver.find_element(By.ID, 'landing-page-dialog.close').click()
+
 
 def getProjectRoot() -> Path:
     return Path(__file__).parent.parent
@@ -261,7 +293,7 @@ def loadYaml(path: Path) -> dict:
 
 
 def loadConfig(
-    configFilename="config.yaml", defaultConfig=DEFAULT_CONFIG
+        configFilename="config.yaml", defaultConfig=DEFAULT_CONFIG
 ) -> MappingProxyType:
     configFile = getProjectRoot() / configFilename
     try:
@@ -290,11 +322,11 @@ def getCCodeLangAndOffset() -> tuple:
 
 def sendNotification(title: str, body: str, e: Exception = None) -> None:
     if Utils.args.disable_apprise or (
-        e
-        and not CONFIG.get("apprise")
-        .get("notify")
-        .get("uncaught-exception")
-        .get("enabled")
+            e
+            and not CONFIG.get("apprise")
+            .get("notify")
+            .get("uncaught-exception")
+            .get("enabled")
     ):
         return
     apprise = Apprise()
@@ -334,23 +366,6 @@ def saveBrowserConfig(sessionPath: Path, config: dict) -> None:
     with open(configFile, "w") as f:
         json.dump(config, f)
 
-def click(self, element: WebElement) -> None:
-    try:
-        element.click()
-    except (ElementClickInterceptedException, ElementNotInteractableException):
-        self.tryDismissAllMessages()
-        element.click()
-
-def acceptNewPrivacy(self):
-    time.sleep(3)
-    self.waitUntilVisible(By.ID, "id__0", timeToWait=15)
-    self.webdriver.execute_script(
-        "window.scrollTo(0, document.body.scrollHeight);")
-    self.waitUntilClickable(By.ID, "id__0", timeToWait=15)
-    self.webdriver.find_element(By.ID, "id__0").click()
-    WebDriverWait(self.webdriver, 25).until_not(
-        expected_conditions.visibility_of_element_located((By.ID, "id__0")))
-    time.sleep(5)
 
 def makeRequestsSession(session: Session = requests.session()) -> Session:
     retry = Retry(
@@ -371,26 +386,6 @@ def makeRequestsSession(session: Session = requests.session()) -> Session:
     )  # See https://stackoverflow.com/a/35504626/4164390 to finetune
     return session
 
-def answerUpdatingTerms(self):
-    # Accept updated terms
-    time.sleep(2)
-    self.webdriver.find_element(By.ID, 'iNext').click()
-    time.sleep(5)
-
-def answerToSecurityQuestion(self):
-    # Click Looks good on security question
-    time.sleep(2)
-    self.webdriver.find_element(By.ID, 'iLooksGood').click()
-    time.sleep(5)
-
-def answerToBreakFreeFromPassword(self):
-    # Click No thanks on break free from password question
-    time.sleep(2)
-    self.webdriver.find_element(By.ID, "iCancel").click()
-    time.sleep(5)
-
-def closeAddRecovery(self):
-    self.webdriver.find_element(By.ID, 'landing-page-dialog.close').click()
 
 CONFIG = loadConfig()
 PRIVATE_CONFIG = loadPrivateConfig()

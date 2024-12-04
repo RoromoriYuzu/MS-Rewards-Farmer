@@ -28,7 +28,7 @@ class Browser:
     webdriver: undetected_chromedriver.Chrome
 
     def __init__(
-        self, mobile: bool, account: Account, args: argparse.Namespace
+            self, mobile: bool, account: Account, args: argparse.Namespace
     ) -> None:
         # Initialize browser instance
         logging.debug("in __init__")
@@ -63,10 +63,10 @@ class Browser:
         return self
 
     def __exit__(
-        self,
-        exc_type: Type[BaseException] | None,
-        exc_value: BaseException | None,
-        traceback: TracebackType | None,
+            self,
+            exc_type: Type[BaseException] | None,
+            exc_value: BaseException | None,
+            traceback: TracebackType | None,
     ):
         # Cleanup actions when exiting the browser context
         logging.debug(
@@ -77,7 +77,7 @@ class Browser:
         self.webdriver.quit()
 
     def browserSetup(
-        self,
+            self,
     ) -> undetected_chromedriver.Chrome:
         # Configure and setup the Chrome browser
         options = undetected_chromedriver.ChromeOptions()
@@ -220,23 +220,26 @@ class Browser:
         sessionsDir.mkdir(parents=True, exist_ok=True)
         return sessionsDir
 
-    @staticmethod
     def getLanguageCountry(language: str, country: str) -> tuple[str, str]:
         if not country:
-            country = CONFIG.get("default").get("location")
+            country = CONFIG.get("default", {}).get("location")
 
         if not language or not country:
             currentLocale = locale.getlocale()
             if not language:
-                with contextlib.suppress(ValueError):
-                    language = pycountry.languages.get(
-                        name=currentLocale[0].split("_")[0]
-                    ).alpha_2
+                with contextlib.suppress(AttributeError, ValueError):
+                    lang_code = currentLocale[0].split("_")[0]
+                    lang = pycountry.languages.get(alpha_2=lang_code)
+                    if not lang:
+                        lang = pycountry.languages.get(alpha_3=lang_code)
+                    if lang and hasattr(lang, 'alpha_2'):
+                        language = lang.alpha_2
             if not country:
-                with contextlib.suppress(ValueError):
-                    country = pycountry.countries.get(
-                        name=currentLocale[0].split("_")[1]
-                    ).alpha_2
+                with contextlib.suppress(AttributeError, ValueError):
+                    country_code = currentLocale[0].split("_")[1]
+                    country_obj = pycountry.countries.get(alpha_2=country_code)
+                    if country_obj:
+                        country = country_obj.alpha_2
 
         if not language or not country:
             try:
@@ -246,17 +249,17 @@ class Browser:
                 if not country:
                     country = ipapiLocation["country"]
             except RateLimited:
-                logging.warning(exc_info=True)
+                logging.warning("Rate limited when accessing ipapi location.", exc_info=True)
 
         if not language:
             language = "en"
             logging.warning(
-                f"Not able to figure language returning default: {language}"
+                f"Not able to determine language. Returning default: {language}"
             )
 
         if not country:
             country = "US"
-            logging.warning(f"Not able to figure country returning default: {country}")
+            logging.warning(f"Not able to determine country. Returning default: {country}")
 
         return language, country
 
@@ -275,7 +278,7 @@ class Browser:
         return version
 
     def getRemainingSearches(
-        self, desktopAndMobile: bool = False
+            self, desktopAndMobile: bool = False
     ) -> RemainingSearches | int:
         bingInfo = self.utils.getBingInfo()
         searchPoints = 1
@@ -293,7 +296,7 @@ class Browser:
         assert pcPointsRemaining % searchPoints == 0
         remainingDesktopSearches: int = int(pcPointsRemaining / searchPoints)
         mobilePointsRemaining = (
-            mobileSearch["pointProgressMax"] - mobileSearch["pointProgress"]
+                mobileSearch["pointProgressMax"] - mobileSearch["pointProgress"]
         )
         assert mobilePointsRemaining % searchPoints == 0
         remainingMobileSearches: int = int(mobilePointsRemaining / searchPoints)
