@@ -8,7 +8,7 @@ apprise:
       enabled: True # True or False
     login-code:
       enabled: True # True or False
-  summary: ON_ERROR
+  summary: ALWAYS
 default:
   geolocation: US # Replace with your country code https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2
 logging:
