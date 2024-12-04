@@ -220,6 +220,7 @@ class Browser:
         sessionsDir.mkdir(parents=True, exist_ok=True)
         return sessionsDir
 
+    @staticmethod
     def getLanguageCountry(language: str, country: str) -> tuple[str, str]:
         if not country:
             country = CONFIG.get("default", {}).get("location")
@@ -283,11 +284,11 @@ class Browser:
         bingInfo = self.utils.getBingInfo()
         searchPoints = 1
         counters = bingInfo["flyoutResult"]["userStatus"]["counters"]
+        
+
         pcSearch: dict = counters["PCSearch"][0]
-        mobileSearch: dict = counters["MobileSearch"][0]
         pointProgressMax: int = pcSearch["pointProgressMax"]
 
-        searchPoints: int
         if pointProgressMax in [30, 90, 102]:
             searchPoints = 3
         elif pointProgressMax in [50, 150] or pointProgressMax >= 170:
@@ -295,15 +296,25 @@ class Browser:
         pcPointsRemaining = pcSearch["pointProgressMax"] - pcSearch["pointProgress"]
         assert pcPointsRemaining % searchPoints == 0
         remainingDesktopSearches: int = int(pcPointsRemaining / searchPoints)
-        mobilePointsRemaining = (
+        
+
+        if "MobileSearch" in counters:
+            mobileSearch: dict = counters["MobileSearch"][0]
+            mobilePointsRemaining = (
                 mobileSearch["pointProgressMax"] - mobileSearch["pointProgress"]
-        )
-        assert mobilePointsRemaining % searchPoints == 0
-        remainingMobileSearches: int = int(mobilePointsRemaining / searchPoints)
+            )
+            assert mobilePointsRemaining % searchPoints == 0
+            remainingMobileSearches: int = int(mobilePointsRemaining / searchPoints)
+        else:
+            remainingMobileSearches = 0
+        
+
         if desktopAndMobile:
             return RemainingSearches(
                 desktop=remainingDesktopSearches, mobile=remainingMobileSearches
             )
+        
+
         if self.mobile:
             return remainingMobileSearches
         return remainingDesktopSearches

@@ -141,9 +141,8 @@ class Utils:
                 self.goToRewards()
 
     def getDailySetPromotions(self) -> list[dict]:
-        return self.getDashboardData()["dailySetPromotions"][
-            date.today().strftime("%m/%d/%Y")
-        ]
+        today_key = date.today().strftime("%m/%d/%Y")
+        return self.getDashboardData().get("dailySetPromotions", {}).get(today_key, [])
 
     def getMorePromotions(self) -> list[dict]:
         return self.getDashboardData()["morePromotions"]
