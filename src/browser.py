@@ -1,4 +1,3 @@
-import argparse
 import contextlib
 import locale
 import logging
@@ -15,9 +14,8 @@ import undetected_chromedriver
 from ipapi.exceptions import RateLimited
 from selenium.webdriver import ChromeOptions
 from selenium.webdriver.chrome.webdriver import WebDriver
-from selenium.webdriver.common.by import By
 
-from src import Account, RemainingSearches
+from src import RemainingSearches
 from src.userAgentGenerator import GenerateUserAgent
 from src.utils import CONFIG, Utils, getBrowserConfig, getProjectRoot, saveBrowserConfig
 
@@ -28,21 +26,19 @@ class Browser:
     webdriver: undetected_chromedriver.Chrome
 
     def __init__(
-        self, mobile: bool, account: Account, args: argparse.Namespace
+        self, mobile: bool, account
     ) -> None:
         # Initialize browser instance
         logging.debug("in __init__")
         self.mobile = mobile
         self.browserType = "mobile" if mobile else "desktop"
-        self.headless = not args.visible
-        self.username = account.username
+        self.headless = not CONFIG.browser.visible
+        self.email = account.email
         self.password = account.password
-        self.totp = account.totp
-        self.localeLang, self.localeGeo = self.getLanguageCountry(args.lang, args.geo)
-        self.proxy = None
-        if args.proxy:
-            self.proxy = args.proxy
-        elif account.proxy:
+        self.totp = account.get('totp')
+        self.localeLang, self.localeGeo = self.getLanguageCountry(CONFIG.browser.language, CONFIG.browser.geolocation)
+        self.proxy = CONFIG.browser.proxy
+        if not self.proxy and account.get('proxy'):
             self.proxy = account.proxy
         self.userDataDir = self.setupProfiles()
         self.browserConfig = getBrowserConfig(self.userDataDir)
@@ -206,15 +202,15 @@ class Browser:
     def setupProfiles(self) -> Path:
         """
         Sets up the sessions profile for the chrome browser.
-        Uses the username to create a unique profile for the session.
+        Uses the email to create a unique profile for the session.
 
         Returns:
             Path
         """
         sessionsDir = getProjectRoot() / "sessions"
 
-        # Concatenate username and browser type for a plain text session ID
-        sessionid = f"{self.username}"
+        # Concatenate email and browser type for a plain text session ID
+        sessionid = f"{self.email}"
 
         sessionsDir = sessionsDir / sessionid
         sessionsDir.mkdir(parents=True, exist_ok=True)
@@ -223,24 +219,23 @@ class Browser:
     @staticmethod
     def getLanguageCountry(language: str, country: str) -> tuple[str, str]:
         if not country:
-            country = CONFIG.get("default", {}).get("location")
+            country = CONFIG.browser.geolocation
+
+        if not language:
+            country = CONFIG.browser.language
 
         if not language or not country:
             currentLocale = locale.getlocale()
             if not language:
-                with contextlib.suppress(AttributeError, ValueError):
-                    lang_code = currentLocale[0].split("_")[0]
-                    lang = pycountry.languages.get(alpha_2=lang_code)
-                    if not lang:
-                        lang = pycountry.languages.get(alpha_3=lang_code)
-                    if lang and hasattr(lang, 'alpha_2'):
-                        language = lang.alpha_2
+                with contextlib.suppress(ValueError):
+                    language = pycountry.languages.get(
+                        alpha_2=currentLocale[0].split("_")[0]
+                    ).alpha_2
             if not country:
-                with contextlib.suppress(AttributeError, ValueError):
-                    country_code = currentLocale[0].split("_")[1]
-                    country_obj = pycountry.countries.get(alpha_2=country_code)
-                    if country_obj:
-                        country = country_obj.alpha_2
+                with contextlib.suppress(ValueError):
+                    country = pycountry.countries.get(
+                        alpha_2=currentLocale[0].split("_")[1]
+                    ).alpha_2
 
         if not language or not country:
             try:
@@ -250,17 +245,17 @@ class Browser:
                 if not country:
                     country = ipapiLocation["country"]
             except RateLimited:
-                logging.warning("Rate limited when accessing ipapi location.", exc_info=True)
+                logging.warning(exc_info=True)
 
         if not language:
             language = "en"
             logging.warning(
-                f"Not able to determine language. Returning default: {language}"
+                f"Not able to figure language returning default: {language}"
             )
 
         if not country:
             country = "US"
-            logging.warning(f"Not able to determine country. Returning default: {country}")
+            logging.warning(f"Not able to figure country returning default: {country}")
 
         return language, country
 

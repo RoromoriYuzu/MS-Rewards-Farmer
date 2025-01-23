@@ -192,3 +192,5 @@ runbot.bat
 /.idea/MS-Rewards-Farmer.iml
 /.idea/vcs.xml
 /.idea/workspace.xml
+mypy.ini
+config.yaml
