@@ -72,6 +72,7 @@ class Login:
         try:
             if element.is_displayed():
                 logging.critical("This Account is Banned!")
+                sendNotification("Account Banned", "This account has been banned.")
                 self.webdriver.close()
                 raise Exception("Account banned, moving to the next account.")
         except (ElementNotInteractableException, NoSuchElementException):

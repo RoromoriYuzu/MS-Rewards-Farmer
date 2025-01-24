@@ -695,7 +695,10 @@ def sendNotification(title: str, body: str, e: Exception = None) -> None:
     lang, geo, tz, ip = getCCodeLangAndOffset()
     additional_info = f"\n Lang: {lang}, Geo: {geo}, TZ: {tz}, IP: {ip}"
     body += additional_info
-    assert apprise.notify(title=str(title), body=str(body))
+    try:
+        apprise.notify(title=str(title), body=str(body))
+    except Exception as e:
+        logging.error(f"Error sending notification: {e}")
 
 
 def getAnswerCode(key: str, string: str) -> str:
