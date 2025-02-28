@@ -171,8 +171,8 @@ DEFAULT_CONFIG: Config = Config(
             'urls': []
         },
         'browser': {
-            'geolocation': 'US',
-            'language': 'en',
+            'geolocation': None,
+            'language': None,
             'visible': False,
             'proxy': None
         },
@@ -342,7 +342,7 @@ class Utils:
             return False
 
     def isLoggedIn(self) -> bool:
-        if self.getBingInfo()["isRewardsUser"]:
+        if self.getBingInfo()["isRewardsUser"]:     # faster, if it works
             return True
         elif self.joinReward():
             return True
