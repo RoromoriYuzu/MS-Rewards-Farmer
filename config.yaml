@@ -52,8 +52,8 @@ retries:
   strategy: 'EXPONENTIAL'
 
 cooldown:
-  min: 300
-  max: 600
+  min: 180
+  max: 300
 
 search:
   type: 'both'

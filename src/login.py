@@ -52,13 +52,13 @@ class Login:
         if (self.webdriver.title == "Microsoft account privacy notice" or
                 self.utils.isElementExists(By.XPATH, '//*[@id="interruptContainer"]/div[3]/div[3]/img')):
             self.utils.acceptNewPrivacy()
+        if (self.webdriver.title == 'Is your security info still accurate?' or
+                self.utils.isElementExists(By.ID, 'iLooksGood')):
+            self.utils.answerToSecurityQuestion()
         if (self.webdriver.title == "We're updating our terms" or
                 self.utils.isElementExists(By.ID, 'iTOUTitle') or
                 self.utils.isElementExists(By.ID, 'iPageTitle')):
             self.utils.answerUpdatingTerms()
-        if (self.webdriver.title == 'Is your security info still accurate?' or
-                self.utils.isElementExists(By.ID, 'iLooksGood')):
-            self.utils.answerToSecurityQuestion()
         # Click No thanks on break free from password question
         if self.webdriver.title == "Break free from your passwords" or self.utils.isElementExists(By.ID, "setupAppDesc"):
             self.utils.answerToBreakFreeFromPassword()
@@ -115,12 +115,12 @@ class Login:
 
     def execute_login(self) -> None:
         # Email field
-        emailField = self.utils.waitUntilVisible(By.ID, "i0116")
+        emailField = self.utils.waitUntilVisible(By.XPATH, "//*[@id='i0116' or @id='usernameEntry']")
         logging.info("[LOGIN] Entering email...")
         emailField.click()
         emailField.send_keys(self.browser.email)
         assert emailField.get_attribute("value") == self.browser.email
-        self.utils.waitUntilClickable(By.ID, "idSIButton9").click()
+        self.utils.waitUntilClickable(By.XPATH, "//*[@id='idSIButton9' or @data-testid='primaryButton']").click()
 
         # Passwordless check
         isPasswordless = False
@@ -150,7 +150,7 @@ class Login:
             passwordField.click()
             passwordField.send_keys(self.browser.password)
             assert passwordField.get_attribute("value") == self.browser.password
-            self.utils.waitUntilClickable(By.ID, "idSIButton9").click()
+            self.utils.waitUntilClickable(By.XPATH, "//*[@id='idSIButton9' or @data-testid='primaryButton']").click()
 
             # Check if 2FA is enabled, both device auth and TOTP are supported
             isDeviceAuthEnabled = False
@@ -198,11 +198,11 @@ class Login:
                     )
                     input()
 
+        self.check_updateInfo()
         self.check_locked_user()
         self.check_banned_user()
 
-        self.utils.waitUntilVisible(By.NAME, "kmsiForm")
-        self.utils.waitUntilClickable(By.ID, "acceptButton").click()
+        self.utils.waitUntilClickable(By.XPATH, "//*[@id='acceptButton' or @data-testid='primaryButton']").click()
 
         # TODO: This should probably instead be checked with an element's id,
         # as the hardcoded text might be different in other languages

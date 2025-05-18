@@ -98,7 +98,7 @@ class Browser:
         options.add_argument("--disable-features=PrivacySandboxSettings4")
         options.add_argument("--disable-http2")
         options.add_argument("--disable-search-engine-choice-screen")  # 153
-        options.page_load_strategy = "normal"
+        options.page_load_strategy = "eager"
 
         seleniumwireOptions: dict[str, Any] = {"verify_ssl": False}
 
@@ -141,8 +141,8 @@ class Browser:
                 deviceHeight = random.randint(568, 1024)
                 deviceWidth = random.randint(320, min(576, int(deviceHeight * 0.7)))
             else:
-                deviceWidth = random.randint(1024, 2560)
-                deviceHeight = random.randint(768, min(1440, int(deviceWidth * 0.8)))
+                deviceWidth = random.randint(1024, 1920)
+                deviceHeight = random.randint(768, min(1080, int(deviceWidth * 0.8)))
             self.browserConfig["sizes"] = {
                 "height": deviceHeight,
                 "width": deviceWidth,
