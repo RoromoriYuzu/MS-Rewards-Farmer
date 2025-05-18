@@ -1,5 +1,3 @@
-import contextlib
-import locale
 import logging
 import os
 import random
@@ -7,17 +5,21 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any, Type
 
-import ipapi
-import pycountry
 import seleniumwire.undetected_chromedriver as webdriver
 import undetected_chromedriver
-from ipapi.exceptions import RateLimited
 from selenium.webdriver import ChromeOptions
 from selenium.webdriver.chrome.webdriver import WebDriver
 
 from src import RemainingSearches
 from src.userAgentGenerator import GenerateUserAgent
-from src.utils import CONFIG, Utils, getBrowserConfig, getProjectRoot, saveBrowserConfig
+from src.utils import (
+    CONFIG,
+    Utils,
+    getBrowserConfig,
+    getProjectRoot,
+    saveBrowserConfig,
+    PREFER_BING_INFO, LANGUAGE, COUNTRY,
+)
 
 
 class Browser:
@@ -25,9 +27,7 @@ class Browser:
 
     webdriver: undetected_chromedriver.Chrome
 
-    def __init__(
-        self, mobile: bool, account
-    ) -> None:
+    def __init__(self, mobile: bool, account) -> None:
         # Initialize browser instance
         logging.debug("in __init__")
         self.mobile = mobile
@@ -35,10 +35,10 @@ class Browser:
         self.headless = not CONFIG.browser.visible
         self.email = account.email
         self.password = account.password
-        self.totp = account.get('totp')
-        self.localeLang, self.localeGeo = self.getLanguageCountry()
+        self.totp = account.get("totp")
+        self.localeLang, self.localeGeo = LANGUAGE, COUNTRY
         self.proxy = CONFIG.browser.proxy
-        if not self.proxy and account.get('proxy'):
+        if not self.proxy and account.get("proxy"):
             self.proxy = account.proxy
         self.userDataDir = self.setupProfiles()
         self.browserConfig = getBrowserConfig(self.userDataDir)
@@ -86,7 +86,7 @@ class Browser:
         options.add_argument("--ignore-certificate-errors")
         options.add_argument("--ignore-certificate-errors-spki-list")
         options.add_argument("--ignore-ssl-errors")
-        if os.environ.get("DOCKER"):
+        if os.path.exists("/.dockerenv"):
             options.add_argument("--disable-dev-shm-usage")
             options.add_argument("--headless=new")
         options.add_argument("--no-sandbox")
@@ -98,7 +98,7 @@ class Browser:
         options.add_argument("--disable-features=PrivacySandboxSettings4")
         options.add_argument("--disable-http2")
         options.add_argument("--disable-search-engine-choice-screen")  # 153
-        options.page_load_strategy = "eager"
+        options.page_load_strategy = "normal"
 
         seleniumwireOptions: dict[str, Any] = {"verify_ssl": False}
 
@@ -111,7 +111,7 @@ class Browser:
             }
         driver = None
 
-        if os.environ.get("DOCKER"):
+        if os.path.exists("/.dockerenv"):
             driver = webdriver.Chrome(
                 options=options,
                 seleniumwire_options=seleniumwireOptions,
@@ -217,46 +217,6 @@ class Browser:
         return sessionsDir
 
     @staticmethod
-    def getLanguageCountry() -> tuple[str, str]:
-        country = CONFIG.browser.geolocation
-        language = CONFIG.browser.language
-
-        if not language or not country:
-            currentLocale = locale.getlocale()
-            if not language:
-                with contextlib.suppress(ValueError):
-                    language = pycountry.languages.get(
-                        alpha_2=currentLocale[0].split("_")[0]
-                    ).alpha_2
-            if not country:
-                with contextlib.suppress(ValueError):
-                    country = pycountry.countries.get(
-                        alpha_2=currentLocale[0].split("_")[1]
-                    ).alpha_2
-
-        if not language or not country:
-            try:
-                ipapiLocation = ipapi.location()
-                if not language:
-                    language = ipapiLocation["languages"].split(",")[0].split("-")[0]
-                if not country:
-                    country = ipapiLocation["country"]
-            except RateLimited:
-                logging.warning(exc_info=True)
-
-        if not language:
-            language = "en"
-            logging.warning(
-                f"Not able to figure language returning default: {language}"
-            )
-
-        if not country:
-            country = "US"
-            logging.warning(f"Not able to figure country returning default: {country}")
-
-        return language, country
-
-    @staticmethod
     def getChromeVersion() -> str:
         chrome_options = ChromeOptions()
         chrome_options.add_argument("--headless=new")
@@ -273,11 +233,16 @@ class Browser:
     def getRemainingSearches(
         self, desktopAndMobile: bool = False
     ) -> RemainingSearches | int:
-        # bingInfo = self.utils.getBingInfo()
-        bingInfo = self.utils.getDashboardData()
+        if PREFER_BING_INFO:
+            bingInfo = self.utils.getBingInfo()
+        else:
+            bingInfo = self.utils.getDashboardData()
         searchPoints = 1
-        counters = bingInfo["userStatus"]["counters"]
-        pcSearch: dict = counters["pcSearch"][0]
+        if PREFER_BING_INFO:
+            counters = bingInfo["flyoutResult"]["userStatus"]["counters"]
+        else:
+            counters = bingInfo["userStatus"]["counters"]
+        pcSearch: dict = counters["PCSearch" if PREFER_BING_INFO else "pcSearch"][0]
         pointProgressMax: int = pcSearch["pointProgressMax"]
 
         searchPoints: int
@@ -289,10 +254,15 @@ class Browser:
         assert pcPointsRemaining % searchPoints == 0
         remainingDesktopSearches: int = int(pcPointsRemaining / searchPoints)
 
-        activeLevel = bingInfo["userStatus"]["levelInfo"]["activeLevel"]
+        if PREFER_BING_INFO:
+            activeLevel = bingInfo["userInfo"]["profile"]["attributes"]["level"]
+        else:
+            activeLevel = bingInfo["userStatus"]["levelInfo"]["activeLevel"]
         remainingMobileSearches: int = 0
         if activeLevel == "Level2":
-            mobileSearch: dict = counters["mobileSearch"][0]
+            mobileSearch: dict = counters[
+                "MobileSearch" if PREFER_BING_INFO else "mobileSearch"
+            ][0]
             mobilePointsRemaining = (
                 mobileSearch["pointProgressMax"] - mobileSearch["pointProgress"]
             )

@@ -1,7 +1,5 @@
-import argparse
 import contextlib
 import logging
-from argparse import Namespace
 
 from pyotp import TOTP
 from selenium.common import TimeoutException
@@ -13,10 +11,19 @@ from selenium.webdriver.common.by import By
 from undetected_chromedriver import Chrome
 
 from src.browser import Browser
-from src.utils import sendNotification, CONFIG
+from src.utils import CONFIG, APPRISE
+
+
+class LoginError(Exception):
+    """
+    Custom exception for login errors.
+    """
 
 
 class Login:
+    """
+    Class to handle login to MS Rewards.
+    """
     browser: Browser
     webdriver: Chrome
 
@@ -32,7 +39,7 @@ class Login:
             )
             self.locked(element)
         except NoSuchElementException:
-            return
+            pass
 
     def check_banned_user(self):
         try:
@@ -63,8 +70,12 @@ class Login:
         try:
             if element.is_displayed():
                 logging.critical("This Account is Locked!")
+                APPRISE.notify(
+                    "This Account is Locked!",
+                    "Account Locked",
+                )
                 self.webdriver.close()
-                raise Exception("Account locked, moving to the next account.")
+                raise LoginError("Account locked, moving to the next account.")
         except (ElementNotInteractableException, NoSuchElementException):
             pass
 
@@ -72,9 +83,12 @@ class Login:
         try:
             if element.is_displayed():
                 logging.critical("This Account is Banned!")
-                sendNotification("Account Banned", "This account has been banned.")
+                APPRISE.notify(
+                    "This account has been banned!",
+                    "Account Banned",
+                )
                 self.webdriver.close()
-                raise Exception("Account banned, moving to the next account.")
+                raise LoginError("Account banned, moving to the next account.")
         except (ElementNotInteractableException, NoSuchElementException):
             pass
 
@@ -123,8 +137,10 @@ class Login:
                 codeField.text,
             )
             if CONFIG.get("apprise.notify.login-code"):
-                sendNotification(
-                    f"Confirm your login on your phone", f"Code: {codeField.text} (expires in 1 minute)")
+                APPRISE.notify(
+                    f"Code: {codeField.text} (expires in 1 minute)",
+                    "Confirm your login on your phone",
+                )
             self.utils.waitUntilVisible(By.NAME, "kmsiForm", 60)
             logging.info("[LOGIN] Successfully verified!")
         else:
@@ -151,26 +167,11 @@ class Login:
 
             if isDeviceAuthEnabled:
                 # Device-based authentication not supported
-                raise Exception(
+                raise LoginError(
                     "Device authentication not supported. Please use TOTP or disable 2FA."
                 )
 
-                # Device auth, have user confirm code on phone
-                codeField = self.utils.waitUntilVisible(
-                    By.ID, "idSpan_SAOTCAS_DescSessionID"
-                )
-                logging.warning(
-                    "[LOGIN] Confirm your login with code %s on your phone (you have"
-                    " one minute)!\a",
-                    codeField.text,
-                )
-                if CONFIG.get("apprise.notify.login-code"):
-                    sendNotification(
-                        f"Confirm your login on your phone", f"Code: {codeField.text} (expires in 1 minute)")
-                self.utils.waitUntilVisible(By.NAME, "kmsiForm", 60)
-                logging.info("[LOGIN] Successfully verified!")
-
-            elif isTOTPEnabled:
+            if isTOTPEnabled:
                 # One-time password required
                 if self.browser.totp is not None:
                     # TOTP token provided
@@ -197,7 +198,6 @@ class Login:
                     )
                     input()
 
-        self.check_updateInfo()
         self.check_locked_user()
         self.check_banned_user()
 
